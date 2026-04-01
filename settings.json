@@ -1,0 +1,9 @@
+{
+  "api_key": "YOUR_API_KEY",
+  "pay_num": "01909242397",
+  "countries": {
+    "🇧🇩 Bangladesh": "19"
+  },
+  "all_users": [],
+  "service": "wa"
+}
