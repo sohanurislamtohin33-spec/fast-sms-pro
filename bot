@@ -1,87 +1,135 @@
 import logging
 import asyncio
+import requests
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 # --- কনফিগারেশন ---
-# আপনার টোকেনটি এখানে সরাসরি না দিয়ে পরিবেশ চলক (Environment Variable) ব্যবহার করা নিরাপদ
 API_TOKEN = '8705619806:AAEAZiddvEkpAbNHJzo6mheN6RS0MeZDwCQ'
 ADMIN_ID = 7917695188
 BKASH_NUMBER = "01909242397"
 PANEL_API_URL = "http://147.135.212.197/crapi/st/viewstats"
 
 logging.basicConfig(level=logging.INFO)
-
-# বট এবং ডিসপ্যাচার ইনিশিয়ালাইজেশন
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
-# ডামি ডাটাবেজ
-subscribed_users = [ADMIN_ID] 
-required_channels = ["@YourChannel1"] 
+# ডাটাবেজ (সহজ করার জন্য লিস্ট ও ডিকশনারি ব্যবহার করা হয়েছে)
+subscribed_users = [ADMIN_ID]
+channels = ["@YourChannelLink"] # অ্যাডমিন প্যানেল দিয়ে এটি পরিবর্তন করা যাবে
+countries = {"Venezuela 🇻🇪": "country_ven", "Cameroon 🇨🇲": "country_cam"}
+otp_group_link = "https://t.me/your_otp_group"
 
-# মেইন মেনু কিবোর্ড
-def main_menu():
+# --- কিবোর্ড ফাংশনস ---
+def main_menu(user_id):
     keyboard = InlineKeyboardMarkup(row_width=2)
     keyboard.add(
         InlineKeyboardButton("Get Number 🔑", callback_data="get_number"),
         InlineKeyboardButton("My Status 👤", callback_data="my_status"),
         InlineKeyboardButton("Buy Subscription 💳", callback_data="buy_sub")
     )
+    if user_id == ADMIN_ID:
+        keyboard.add(InlineKeyboardButton("🛠 Admin Panel", callback_data="admin_panel"))
     return keyboard
 
-# /start কমান্ড
-@dp.message_handler(commands=['start'])
-async def send_welcome(message: types.Message):
-    user_id = message.from_user.id
-    
-    if user_id not in subscribed_users:
-        text = (f"স্বাগতম! এই বটটি ব্যবহার করতে আপনাকে মাসিক সাবস্ক্রিপশন কিনতে হবে।\n\n"
-                f"বিকাশ নাম্বার: {BKASH_NUMBER}\n"
-                f"টাকা পাঠিয়ে অ্যাডমিনকে স্ক্রিনশট দিন।")
-        await message.answer(text, reply_markup=main_menu())
-    else:
-        await message.answer("অ্যাক্সেস অনুমোদিত! আপনি এখন ওটিপি সার্ভিস ব্যবহার করতে পারেন।", 
-                             reply_markup=main_menu())
+def admin_menu():
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        InlineKeyboardButton("📢 Broadcast Message", callback_data="admin_bc"),
+        InlineKeyboardButton("➕ Add/Remove Channel", callback_data="admin_chan"),
+        InlineKeyboardButton("🌍 Manage Countries", callback_data="admin_country"),
+        InlineKeyboardButton("👥 Add/Remove Member", callback_data="admin_member"),
+        InlineKeyboardButton("🔄 Set OTP Group", callback_data="admin_otp_grp"),
+        InlineKeyboardButton("🔙 Back", callback_data="back_main")
+    )
+    return keyboard
 
-# ওটিপি নাম্বার নেওয়ার লজিক
+# --- ফোর্স জয়েন চেক ---
+async def check_join(user_id):
+    for channel in channels:
+        try:
+            member = await bot.get_chat_member(chat_id=channel, user_id=user_id)
+            if member.status == 'left': return False
+        except: continue
+    return True
+
+# --- হ্যান্ডলারস ---
+@dp.message_handler(commands=['start'])
+async def start_cmd(message: types.Message):
+    user_id = message.from_user.id
+    is_joined = await check_join(user_id)
+    
+    if not is_joined:
+        kb = InlineKeyboardMarkup(row_width=1)
+        for ch in channels:
+            kb.add(InlineKeyboardButton(f"Join {ch}", url=f"https://t.me/{ch.replace('@','')}"))
+        kb.add(InlineKeyboardButton("✅ Verify", callback_data="verify_join"))
+        await message.answer("❌ ACCESS DENIED!\n\nকাজ শুরু করতে আমাদের চ্যানেলগুলোতে জয়েন করুন।", reply_markup=kb)
+        return
+
+    if user_id not in subscribed_users:
+        text = f"🚫 সাবস্ক্রিপশন প্রয়োজন!\nবিকাশ: {BKASH_NUMBER}\nটাকা পাঠিয়ে অ্যাডমিনকে স্ক্রিনশট দিন।"
+        await message.answer(text, reply_markup=main_menu(user_id))
+    else:
+        await message.answer("✅ Access Granted! আপনি এখন ওটিপি সার্ভিস ব্যবহার করতে পারেন।", reply_markup=main_menu(user_id))
+
+# --- অ্যাডমিন প্যানেল লজিক ---
+@dp.callback_query_handler(lambda c: c.data == 'admin_panel')
+async def open_admin(call: CallbackQuery):
+    if call.from_user.id == ADMIN_ID:
+        await call.message.edit_text("--- এডমিন কন্ট্রোল প্যানেল ---", reply_markup=admin_menu())
+    else:
+        await call.answer("অ্যাক্সেস নেই", show_alert=True)
+
+# ব্রডকাস্ট (সবাইকে মেসেজ)
+@dp.callback_query_handler(text="admin_bc")
+async def start_bc(call: CallbackQuery):
+    await call.message.answer("ব্রডকাস্ট করতে মেসেজটি লিখুন: `/send [আপনার মেসেজ]`")
+
+@dp.message_handler(commands=['send'])
+async def process_broadcast(message: types.Message):
+    if message.from_user.id == ADMIN_ID:
+        msg = message.text.replace("/send ", "")
+        count = 0
+        for user in subscribed_users:
+            try:
+                await bot.send_message(user, f"📢 **ANNUNCIATION:**\n\n{msg}")
+                count += 1
+            except: continue
+        await message.answer(f"✅ {count} জন মেম্বারকে মেসেজ পাঠানো হয়েছে।")
+
+# মেম্বার এড/রিমুভ (অ্যাডমিন কমান্ড)
+@dp.message_handler(commands=['add'])
+async def add_member(message: types.Message):
+    if message.from_user.id == ADMIN_ID:
+        new_id = int(message.text.split()[1])
+        subscribed_users.append(new_id)
+        await message.answer(f"✅ User {new_id} এখন প্রিমিয়াম মেম্বার।")
+
+# --- নাম্বার ও ওটিপি লজিক ---
 @dp.callback_query_handler(text="get_number")
-async def get_otp_number(call: types.CallbackQuery):
+async def pick_country(call: CallbackQuery):
     if call.from_user.id not in subscribed_users:
         await call.answer("আগে সাবস্ক্রিপশন কিনুন!", show_alert=True)
         return
     
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(
-        InlineKeyboardButton("Venezuela 🇻🇪", callback_data="country_ven"),
-        InlineKeyboardButton("Cameroon 🇨🇲", callback_data="country_cam")
-    )
-    await call.message.answer("একটি দেশ সিলেক্ট করুন:", reply_markup=keyboard)
-    await call.answer()
+    kb = InlineKeyboardMarkup(row_width=2)
+    for name, code in countries.items():
+        kb.add(InlineKeyboardButton(name, callback_data=f"buy_{code}"))
+    await call.message.answer("🛍 PREMIUM SERVICE STORE\nনিচে থেকে দেশ সিলেক্ট করুন:", reply_markup=kb)
 
-# সাবস্ক্রিপশন স্ট্যাটাস চেক
-@dp.callback_query_handler(text="my_status")
-async def check_status(call: types.CallbackQuery):
-    status = "Active ✅" if call.from_user.id in subscribed_users else "Inactive ❌"
-    await call.message.answer(f"আপনার সাবস্ক্রিপশন স্ট্যাটাস: {status}")
-    await call.answer()
+@dp.callback_query_handler(lambda c: c.data.startswith('buy_'))
+async def buy_otp(call: CallbackQuery):
+    # এখানে প্যানেল এপিআই কল হবে
+    # response = requests.get(PANEL_API_URL).json()
+    await call.message.answer("✅ আপনার নাম্বার রেডি!\n\n📱 Number: +584166788662\n⏳ ৩০ মিনিট অপেক্ষা করুন। ওটিপি আসলে ওটিপি গ্রুপে জানানো হবে।", 
+                             reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("View OTP 📩", url=otp_group_link)))
 
-# অ্যাডমিন ব্রডকাস্ট কমান্ড
-@dp.message_handler(commands=['broadcast'])
-async def broadcast(message: types.Message):
-    if message.from_user.id == ADMIN_ID:
-        msg_text = message.text.replace("/broadcast ", "")
-        if msg_text == "/broadcast":
-            await message.answer("অনুগ্রহ করে মেসেজটি লিখুন। উদাহরণ: `/broadcast হ্যালো`")
-            return
-        
-        # এখানে লুপ চালিয়ে ইউজারদের পাঠানোর লজিক যোগ করা যাবে
-        await message.answer(f"ব্রডকাস্ট মেসেজ পাঠানো হয়েছে: {msg_text}")
-    else:
-        await message.answer("আপনি অ্যাডমিন নন!")
+@dp.callback_query_handler(text="back_main")
+async def back(call: CallbackQuery):
+    await call.message.edit_text("মেইন মেনু:", reply_markup=main_menu(call.from_user.id))
 
-# হোস্টিং অ্যাপে চালানোর জন্য রানার
 if __name__ == '__main__':
-    print("বটটি সফলভাবে চালু হয়েছে...")
+    print("Bot is Running...")
     executor.start_polling(dp, skip_updates=True)
