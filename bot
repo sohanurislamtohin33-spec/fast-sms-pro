@@ -1,0 +1,87 @@
+import logging
+import asyncio
+from aiogram import Bot, Dispatcher, types
+from aiogram.utils import executor
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+# --- কনফিগারেশন ---
+# আপনার টোকেনটি এখানে সরাসরি না দিয়ে পরিবেশ চলক (Environment Variable) ব্যবহার করা নিরাপদ
+API_TOKEN = '8705619806:AAEAZiddvEkpAbNHJzo6mheN6RS0MeZDwCQ'
+ADMIN_ID = 7917695188
+BKASH_NUMBER = "01909242397"
+PANEL_API_URL = "http://147.135.212.197/crapi/st/viewstats"
+
+logging.basicConfig(level=logging.INFO)
+
+# বট এবং ডিসপ্যাচার ইনিশিয়ালাইজেশন
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(bot)
+
+# ডামি ডাটাবেজ
+subscribed_users = [ADMIN_ID] 
+required_channels = ["@YourChannel1"] 
+
+# মেইন মেনু কিবোর্ড
+def main_menu():
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("Get Number 🔑", callback_data="get_number"),
+        InlineKeyboardButton("My Status 👤", callback_data="my_status"),
+        InlineKeyboardButton("Buy Subscription 💳", callback_data="buy_sub")
+    )
+    return keyboard
+
+# /start কমান্ড
+@dp.message_handler(commands=['start'])
+async def send_welcome(message: types.Message):
+    user_id = message.from_user.id
+    
+    if user_id not in subscribed_users:
+        text = (f"স্বাগতম! এই বটটি ব্যবহার করতে আপনাকে মাসিক সাবস্ক্রিপশন কিনতে হবে।\n\n"
+                f"বিকাশ নাম্বার: {BKASH_NUMBER}\n"
+                f"টাকা পাঠিয়ে অ্যাডমিনকে স্ক্রিনশট দিন।")
+        await message.answer(text, reply_markup=main_menu())
+    else:
+        await message.answer("অ্যাক্সেস অনুমোদিত! আপনি এখন ওটিপি সার্ভিস ব্যবহার করতে পারেন।", 
+                             reply_markup=main_menu())
+
+# ওটিপি নাম্বার নেওয়ার লজিক
+@dp.callback_query_handler(text="get_number")
+async def get_otp_number(call: types.CallbackQuery):
+    if call.from_user.id not in subscribed_users:
+        await call.answer("আগে সাবস্ক্রিপশন কিনুন!", show_alert=True)
+        return
+    
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(
+        InlineKeyboardButton("Venezuela 🇻🇪", callback_data="country_ven"),
+        InlineKeyboardButton("Cameroon 🇨🇲", callback_data="country_cam")
+    )
+    await call.message.answer("একটি দেশ সিলেক্ট করুন:", reply_markup=keyboard)
+    await call.answer()
+
+# সাবস্ক্রিপশন স্ট্যাটাস চেক
+@dp.callback_query_handler(text="my_status")
+async def check_status(call: types.CallbackQuery):
+    status = "Active ✅" if call.from_user.id in subscribed_users else "Inactive ❌"
+    await call.message.answer(f"আপনার সাবস্ক্রিপশন স্ট্যাটাস: {status}")
+    await call.answer()
+
+# অ্যাডমিন ব্রডকাস্ট কমান্ড
+@dp.message_handler(commands=['broadcast'])
+async def broadcast(message: types.Message):
+    if message.from_user.id == ADMIN_ID:
+        msg_text = message.text.replace("/broadcast ", "")
+        if msg_text == "/broadcast":
+            await message.answer("অনুগ্রহ করে মেসেজটি লিখুন। উদাহরণ: `/broadcast হ্যালো`")
+            return
+        
+        # এখানে লুপ চালিয়ে ইউজারদের পাঠানোর লজিক যোগ করা যাবে
+        await message.answer(f"ব্রডকাস্ট মেসেজ পাঠানো হয়েছে: {msg_text}")
+    else:
+        await message.answer("আপনি অ্যাডমিন নন!")
+
+# হোস্টিং অ্যাপে চালানোর জন্য রানার
+if __name__ == '__main__':
+    print("বটটি সফলভাবে চালু হয়েছে...")
+    executor.start_polling(dp, skip_updates=True)
