@@ -1,0 +1,63 @@
+import requests
+import asyncio
+import os
+from telegram import Bot
+
+# --- সেটিংস ---
+# যদি প্যানেলের কোনো নির্দিষ্ট API থাকে যা নম্বর দেয়, সেটি এখানে দিন
+API_URL = "http://147.135.212.197/crapi/st/viewstats" 
+TOKEN = "RFdUREJBUzR9T4dVc49ndmFra1NYV5CIhpGVcnaOYmqHhJZXfYGJSQ=="
+
+TELEGRAM_BOT_TOKEN = "8705619806:AAEAZiddvEkpAbNHJzo6mheN6RS0MeZDwCQ"
+TELEGRAM_GROUP_ID = -1003909406425
+
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
+
+async def collect_numbers_and_send():
+    print("🚀 নম্বর সংগ্রহ করা শুরু হচ্ছে...")
+    try:
+        # API থেকে ডেটা আনা
+        params = {"token": TOKEN}
+        response = requests.get(API_URL, params=params, timeout=20)
+        data = response.json()
+
+        if not data or not isinstance(data, list):
+            print("❌ কোনো ডেটা পাওয়া যায়নি বা API লিঙ্ক ভুল।")
+            return
+
+        # নম্বরগুলো ফিল্টার করা (ধরে নিচ্ছি entry[1] এ নম্বর আছে)
+        numbers = []
+        for entry in data:
+            phone = str(entry[1]).strip()
+            if phone not in numbers:
+                numbers.append(phone)
+
+        if not numbers:
+            print("❌ কোনো নম্বর খুঁজে পাওয়া যায়নি।")
+            return
+
+        # ফাইল তৈরি করা
+        file_name = "all_numbers.txt"
+        with open(file_name, "w") as f:
+            for num in numbers:
+                f.write(num + "\n")
+        
+        print(f"✅ {len(numbers)}টি নম্বর পাওয়া গেছে। ফাইল পাঠানো হচ্ছে...")
+
+        # টেলিগ্রামে ফাইল পাঠানো
+        with open(file_name, "rb") as document:
+            await bot.send_document(
+                chat_id=TELEGRAM_GROUP_ID,
+                document=document,
+                caption=f"📂 প্যানেলের সকল নম্বরের লিস্ট\n🔢 মোট নম্বর: {len(numbers)}"
+            )
+        
+        # ফাইল ডিলিট করে দেওয়া
+        os.remove(file_name)
+        print("🎉 ফাইল পাঠানো সম্পন্ন হয়েছে।")
+
+    except Exception as e:
+        print(f"❌ এরর: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(collect_numbers_and_send())
