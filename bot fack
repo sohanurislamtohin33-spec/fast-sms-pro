@@ -1,76 +1,71 @@
+import telebot
 import requests
-import asyncio
 import os
-import re
-from telegram import Bot
-from telegram.constants import ParseMode
 
-# ------------------ আপনার প্যানেল সেটিংস ------------------
-# এখানে আপনার প্যানেলের আসল API URL এবং Token বসান
-API_URL = "http://147.135.212.197/crapi/st/viewstats" 
-TOKEN = "RFdUREJBUzR9T4dVc49ndmFra1NYV5CIhpGVcnaOYmqHhJZXfYGJSQ=="
+# --- আপনার দেওয়া তথ্যসমূহ ---
+API_URL = "http://147.135.212.197/crapi/st/viewstats"
+API_TOKEN = "RFdUREJBUzR9T4dVc49ndmFra1NYV5CIhpGVcnaOYmqHhJZXfYGJSQ=="
+BOT_TOKEN = "8691984492:AAHakoP3nJi1mACTkQi3fjLEOpnlP5_tBq4"
 
-# টেলিগ্রাম সেটিংস
-TELEGRAM_BOT_TOKEN = "8705619806:AAEAZiddvEkpAbNHJzo6mheN6RS0MeZDwCQ"
-TELEGRAM_GROUP_ID = -1003909406425
+# বোট অবজেক্ট তৈরি
+bot = telebot.TeleBot(BOT_TOKEN)
 
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
-
-async def fetch_and_send_numbers():
-    print("🚀 প্যানেল থেকে নম্বর সংগ্রহ করা শুরু হচ্ছে...")
-    
+def fetch_numbers():
+    """প্যানেল থেকে নম্বর সংগ্রহ করার ফাংশন"""
     try:
-        # API থেকে ডেটা কল করা
-        params = {"token": TOKEN}
-        response = requests.get(API_URL, params=params, timeout=30)
+        params = {"token": API_TOKEN}
+        response = requests.get(API_URL, params=params, timeout=20)
         
-        # যদি API কাজ করে
         if response.status_code == 200:
             data = response.json()
-            
-            # নম্বরগুলো রাখার জন্য লিস্ট
-            numbers_list = []
-
-            # ডেটা থেকে নম্বর খুঁজে বের করা (API ফরম্যাট অনুযায়ী এটি পরিবর্তন হতে পারে)
             if isinstance(data, list):
+                # ডুপ্লিকেট নম্বর বাদ দিয়ে ইউনিক নম্বর সংগ্রহ করা
+                # সাধারণত entry[1]-এ নম্বর থাকে
+                numbers = set()
                 for entry in data:
-                    # সাধারণত entry[1] বা entry['phone'] এ নম্বর থাকে
-                    # আমরা ধরে নিচ্ছি আপনার এপিআই লিস্ট আকারে ডেটা দেয়
-                    phone = str(entry[1]).strip() if len(entry) > 1 else None
-                    if phone and phone not in numbers_list:
-                        numbers_list.append(phone)
-            
-            if not numbers_list:
-                print("❌ কোনো নম্বর পাওয়া যায়নি। API Response চেক করুন।")
-                return
-
-            # ১. একটি টেক্সট ফাইল তৈরি করা
-            file_name = "panel_numbers.txt"
-            with open(file_name, "w") as f:
-                for number in numbers_list:
-                    f.write(f"{number}\n")
-
-            print(f"✅ মোট {len(numbers_list)}টি নম্বর পাওয়া গেছে।")
-
-            # ২. টেলিগ্রামে ফাইলটি পাঠানো
-            with open(file_name, "rb") as doc:
-                await bot.send_document(
-                    chat_id=TELEGRAM_GROUP_ID,
-                    document=doc,
-                    caption=f"📂 <b>প্যানেল নম্বর লিস্ট</b>\n\n🔢 মোট নম্বর: <code>{len(numbers_list)}</code>",
-                    parse_mode=ParseMode.HTML
-                )
-            
-            print("🎉 ফাইলটি সফলভাবে টেলিগ্রামে পাঠানো হয়েছে।")
-            
-            # ৩. কাজ শেষ হলে ফাইল ডিলিট করা
-            os.remove(file_name)
-
+                    if len(entry) > 1:
+                        num = str(entry[1]).strip()
+                        if num:
+                            numbers.add(num)
+                return sorted(list(numbers))
+            return None
         else:
-            print(f"❌ API কানেকশনে সমস্যা। Status Code: {response.status_code}")
-
+            return None
     except Exception as e:
-        print(f"❌ এরর: {str(e)}")
+        print(f"Error fetching data: {e}")
+        return None
+
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.reply_to(message, "👋 স্বাগতম! প্যানেলের সব নম্বর পেতে /getfile কমান্ডটি দিন।")
+
+@bot.message_handler(commands=['getfile'])
+def send_numbers_file(message):
+    chat_id = message.chat.id
+    bot.send_message(chat_id, "⏳ নম্বর সংগ্রহ করা হচ্ছে, দয়া করে অপেক্ষা করুন...")
+    
+    numbers = fetch_numbers()
+    
+    if numbers:
+        file_name = f"numbers_list_{chat_id}.txt"
+        
+        # ফাইল তৈরি করা
+        with open(file_name, "w") as f:
+            f.write("\n".join(numbers))
+        
+        # ফাইল পাঠানো
+        with open(file_name, "rb") as doc:
+            bot.send_document(
+                chat_id, 
+                doc, 
+                caption=f"✅ সফলভাবে নম্বর সংগ্রহ করা হয়েছে।\n🔢 মোট নম্বর: {len(numbers)}"
+            )
+        
+        # পাঠানোর পর মোবাইল থেকে ফাইল ডিলিট করা
+        os.remove(file_name)
+    else:
+        bot.send_message(chat_id, "❌ দুঃখিত! প্যানেল থেকে কোনো নম্বর পাওয়া যায়নি বা এপিআই-তে সমস্যা আছে।")
 
 if __name__ == "__main__":
-    asyncio.run(fetch_and_send_numbers())
+    print("🚀 বট চালু হয়েছে... এখন /getfile কমান্ড দিয়ে চেক করুন।")
+    bot.infinity_polling()
